@@ -18,7 +18,8 @@
 #include <Sipeed_OV2640.h>
 #include <Sipeed_ST7789.h>
 #include <stdio.h>
-#include <WiFiEsp.h>
+//#include <WiFiEsp.h>
+#include <WiFiEsp32.h>
 #include <IPAddress.h>
 #include <Print.h>
 #include <SPI.h>
@@ -28,7 +29,7 @@ Sipeed_ST7789 lcd(320, 240, spi_);
 
 Sipeed_OV2640 camera(FRAMESIZE_QVGA, PIXFORMAT_RGB565);
 
-char ssid[] = "xxxxxxxxxxxx";        // your network SSID (name)
+char SSID[] = "xxxxxxxxxxxx";        // your network SSID (name)
 char pass[] = "zzzzzzzzzzzz";        // your network password
 int status = WL_IDLE_STATUS;
 
@@ -146,22 +147,23 @@ void setup() {
     printf("camera init success\n");
   camera.run(true);
 
-  // WiFi power control for NewMaixGo
-  fpioa_set_function(0, FUNC_GPIOHS1);
-  gpiohs_set_drive_mode(1, GPIO_DM_OUTPUT);
-  gpiohs_set_pin(1, GPIO_PV_LOW);
+//  // WiFi power control for NewMaixGo
+//  fpioa_set_function(0, FUNC_GPIOHS1);
+//  gpiohs_set_drive_mode(1, GPIO_DM_OUTPUT);
+//  gpiohs_set_pin(1, GPIO_PV_LOW);
 
-  // ESP8265 WiFi reset for NewMaixGo
-  fpioa_set_function(8, FUNC_GPIOHS0);
-  gpiohs_set_drive_mode(0, GPIO_DM_OUTPUT);
-  gpiohs_set_pin(0, GPIO_PV_LOW);
-  sleep(1);
-  gpiohs_set_pin(0, GPIO_PV_HIGH);
-  sleep(3);
+//  // ESP8265 WiFi reset for NewMaixGo
+//  fpioa_set_function(8, FUNC_GPIOHS0);
+//  gpiohs_set_drive_mode(0, GPIO_DM_OUTPUT);
+//  gpiohs_set_pin(0, GPIO_PV_LOW);
+//  sleep(1);
+//  gpiohs_set_pin(0, GPIO_PV_HIGH);
+//  sleep(3);
 
   Serial.begin(115200);   // initialize serial for debugging
-  Serial1.begin(115200);  // initialize serial for ESP WiFi module
-  WiFi.init(&Serial1);    // initialize ESP WiFi module
+//  Serial1.begin(115200);  // initialize serial for ESP WiFi module
+//  WiFi.init(&Serial1);    // initialize ESP WiFi module
+  WiFi.init();    // initialize ESP32 WiFi module
 
   // check for the presence of the shield
   if (WiFi.status() == WL_NO_SHIELD) {
@@ -173,9 +175,9 @@ void setup() {
   // attempt to connect to WiFi network
   while (status != WL_CONNECTED) {
     Serial.print("Attempting to connect to WPA SSID: ");
-    Serial.println(ssid);
+    Serial.println(SSID);
     // Connect to WPA/WPA2 network
-    status = WiFi.begin(ssid, pass);
+    status = WiFi.begin(SSID, pass);
   }
 
   Serial.println("You're connected to the network");

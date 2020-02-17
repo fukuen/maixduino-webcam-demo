@@ -1,2 +1,2 @@
 # maixduino-webcam-demo
-WebCam sample for Maix-Go / Maixduino
+WebCam sample for Maixduino / Maix-Go
