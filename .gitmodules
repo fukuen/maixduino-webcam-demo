@@ -1,3 +1,6 @@
 [submodule "lib/WiFiEsp32"]
 	path = lib/WiFiEsp32
 	url = https://github.com/fukuen/maixduino-wifiesp32-lib.git
+[submodule "lib/Maixduino_GC0328"]
+	path = lib/Maixduino_GC0328
+	url = https://github.com/fukuen/Maixduino_GC0328

@@ -15,10 +15,9 @@
 */
 
 #include <Arduino.h>
-#include <Sipeed_OV2640.h>
+#include <Maixduino_GC0328.h>
 #include <Sipeed_ST7789.h>
 #include <stdio.h>
-//#include <WiFiEsp.h>
 #include <WiFiEsp32.h>
 #include <IPAddress.h>
 #include <Print.h>
@@ -27,7 +26,8 @@
 SPIClass spi_(SPI0); // MUST be SPI0 for Maix series on board LCD
 Sipeed_ST7789 lcd(320, 240, spi_);
 
-Sipeed_OV2640 camera(FRAMESIZE_QVGA, PIXFORMAT_RGB565);
+Maixduino_GC0328 camera(FRAMESIZE_QVGA, PIXFORMAT_RGB565);
+//Maixduino_GC0328 camera(FRAMESIZE_QVGA, PIXFORMAT_YUV422);
 
 char SSID[] = "xxxxxxxxxxxx";        // your network SSID (name)
 char pass[] = "zzzzzzzzzzzz";        // your network password
@@ -37,23 +37,30 @@ WiFiEspServer server(80);
 // use a ring buffer to increase speed and reduce memory allocation
 EspRingBuffer buf(64);
 
+#define BODY1 \
+  "<!DOCTYPE html>\n"\
+  "<meta http-equiv=\"refresh\" content=\"30;\">\n"\
+  "<html>\n"\
+  "<head> <meta content=\"text/html\" charset=\"UTF-8\"> </head>\n"\
+  "<body>\n"\
+  "<img src=\"/jpg\">\n"\
+  "</body>\n"\
+  "</html>"
+
 /*
  * HTML Response
  */
 void sendHttpResponse(WiFiEspClient client) {
+  int len = sizeof(BODY1);
   // HTTP headers always start with a response code (e.g. HTTP/1.1 200 OK)
   // and a content-type so the client knows what's coming, then a blank line:
   client.println("HTTP/1.1 200 OK");
   client.println("Content-type:text/html");
+  client.printf("Content-lengzh: %d\n", len);
+  client.println("Connection: close");
   client.println();
 
-  client.println("<meta http-equiv=\"refresh\" content=\"30;\">");
-  client.println("<html>");
-  client.println("<head></head>");
-  client.println("<body>");
-  client.println("<img src=\"/jpg\"");
-  client.println("</body>");
-  client.println("</html>");
+  client.print(BODY1);
   
   // The HTTP response ends with another blank line:
   client.println();
@@ -62,54 +69,129 @@ void sendHttpResponse(WiFiEspClient client) {
 /*
  * HTML Response img
  */
-void sendHttpResponseJpg(WiFiEspClient client) {
+void sendHttpResponseBmp(WiFiEspClient client) {
   // take snapshot 1 RGB565 & send to LCD
   camera.setPixFormat(PIXFORMAT_RGB565);
   uint8_t*img = camera.snapshot();
-  if(img == nullptr || img==0)
+  if(img == nullptr || img==0) {
     printf("snap fail\n");
-  else
-    lcd.drawImage(0, 0, camera.width(), camera.height(), (uint16_t*)img);
-
-  // clear buffer to find end of jpeg
-  for (int i = 0; i < 320 * 240 * 2; i++) {
-    img[i] = 0x0;
+    return;
   }
+  lcd.drawImage(0, 0, camera.width(), camera.height(), (uint16_t*)img);
 
-  // take snapshot 2 JPEG
-  camera.setPixFormat(PIXFORMAT_JPEG);
-  img = camera.snapshot();
-
-  // search end of jpeg
-  long eof = 320 * 240 * 2 - 1; // max
-  for (int i = 320 * 240 * 2 - 1; i > 0; i--) {
-    if (img[i] != 0) {
-      eof = i;
-      break;
-    }
-  }
-  Serial.printf("jpeg size %ld\n", eof);
+  long len = 320 * 240 * 2 + 54 + 12;
 
   // HTTP response
   client.setTimeout(180 * 1000);
   client.println("HTTP/1.1 200 OK");
-  client.println("Content-type: image/jpeg");
+  client.println("Content-type: image/bmp");
   client.print("Content-length: ");
-  client.printf("%ld", eof);
+  client.printf("%ld", len);
   client.println();
   client.println();
 
-  // send jpeg
-  // 80 bytes per write
-  uint16_t rest = eof;
-  for (int i = 0; i < eof / 2; i += 40) {
-    if (rest < 80) {
-      client.write((uint8_t *)img + i * 2, rest);
-    } else {
-      client.write((uint8_t *)img + i * 2, 80);
-      rest -= 80;
-    }
+  int BitDepth = 16;
+  int Width = 320;
+  int Height = 240;
+  double dBytesPerPixel = ( (double) BitDepth ) / 8.0;
+  double dBytesPerRow = dBytesPerPixel * (Width+0.0);
+  dBytesPerRow = ceil(dBytesPerRow);
+
+  int BytePaddingPerRow = 4 - ( (int) (dBytesPerRow) )% 4;
+  if( BytePaddingPerRow == 4 ) {
+    BytePaddingPerRow = 0;
   }
+
+  double dActualBytesPerRow = dBytesPerRow + BytePaddingPerRow;
+  double dTotalPixelBytes = Height * dActualBytesPerRow;
+  double dPaletteSize = 3 * 4;
+  double dTotalFileSize = 14 + 40 + dPaletteSize + dTotalPixelBytes;
+
+  // write the file header 
+
+// typedef unsigned char  ebmpBYTE;
+  typedef unsigned short ebmpWORD;
+  typedef unsigned int  ebmpDWORD;
+
+  ebmpWORD bfType = 19778; // BM
+  ebmpDWORD bfSize = (ebmpDWORD) dTotalFileSize; 
+  ebmpWORD bfReserved1 = 0; 
+  ebmpWORD bfReserved2 = 0; 
+  ebmpDWORD bfOffBits = (ebmpDWORD) (14+40+dPaletteSize);  
+ 
+  client.write( (uint8_t*) &(bfType) , sizeof(ebmpWORD) );
+  client.write( (uint8_t*) &(bfSize) , sizeof(ebmpDWORD) );
+  client.write( (uint8_t*) &(bfReserved1) , sizeof(ebmpWORD) );
+  client.write( (uint8_t*) &(bfReserved2) , sizeof(ebmpWORD) );
+  client.write( (uint8_t*) &(bfOffBits) , sizeof(ebmpDWORD) );
+
+  // write the info header 
+ 
+  ebmpDWORD biSize = 40;
+  ebmpDWORD biWidth = Width;
+  ebmpDWORD biHeight = Height;
+  ebmpWORD biPlanes = 1;
+  ebmpWORD biBitCount = BitDepth;
+  ebmpDWORD biCompression = 0;
+  ebmpDWORD biSizeImage = (ebmpDWORD) dTotalPixelBytes;
+  ebmpDWORD biXPelsPerMeter = 0;
+  ebmpDWORD biYPelsPerMeter = 0;
+  ebmpDWORD biClrUsed = 0;
+  ebmpDWORD biClrImportant = 0;
+
+  // indicates that we'll be using bit fields for 16-bit files
+  if( BitDepth == 16 ) {
+    biCompression = 3;
+  }
+ 
+  client.write( (uint8_t*) &(biSize) , sizeof(ebmpDWORD) );
+  client.write( (uint8_t*) &(biWidth) , sizeof(ebmpDWORD) );
+  client.write( (uint8_t*) &(biHeight) , sizeof(ebmpDWORD) );
+  client.write( (uint8_t*) &(biPlanes) , sizeof(ebmpWORD) );
+  client.write( (uint8_t*) &(biBitCount) , sizeof(ebmpWORD) );
+  client.write( (uint8_t*) &(biCompression) , sizeof(ebmpDWORD) );
+  client.write( (uint8_t*) &(biSizeImage) , sizeof(ebmpDWORD) );
+  client.write( (uint8_t*) &(biXPelsPerMeter) , sizeof(ebmpDWORD) );
+  client.write( (uint8_t*) &(biYPelsPerMeter) , sizeof(ebmpDWORD) ); 
+  client.write( (uint8_t*) &(biClrUsed) , sizeof(ebmpDWORD) );
+  client.write( (uint8_t*) &(biClrImportant) , sizeof(ebmpDWORD) );
+ 
+  // write the bit masks
+
+  ebmpWORD BlueMask = 31;    // bits 12-16
+  ebmpWORD GreenMask = 2016; // bits 6-11
+  ebmpWORD RedMask = 63488;  // bits 1-5
+//  ebmpWORD GreenMask = 63488;  // bits 12-16
+//  ebmpWORD BlueMask = 2016;    // bits 6-11
+//  ebmpWORD RedMask = 31;       // bits 1-5
+  ebmpWORD ZeroWORD = 0;
+  
+  client.write( (uint8_t*) &RedMask , sizeof(ebmpWORD) );
+  client.write( (uint8_t*) &ZeroWORD , sizeof(ebmpWORD) );
+
+  client.write( (uint8_t*) &GreenMask , sizeof(ebmpWORD) );
+  client.write( (uint8_t*) &ZeroWORD , sizeof(ebmpWORD) );
+
+  client.write( (uint8_t*) &BlueMask , sizeof(ebmpWORD) );
+  client.write( (uint8_t*) &ZeroWORD , sizeof(ebmpWORD) );
+
+  int DataBytes = Width*2;
+  int PaddingBytes = ( 4 - DataBytes % 4 ) % 4;
+  
+  // write the actual pixels
+  
+  uint8_t b[320 * 2];
+
+  // Send all the pixels on the whole screen
+  for ( uint32_t y = Height; y >= 0; y--) {
+    // Increment x by NPIXELS as we send NPIXELS for every byte received
+    for ( uint32_t x = 0; x < Width * 2; x += 2) {
+      b[x] = img[y * Width * 2 + x + 1];
+      b[x + 1] = img[y * Width * 2 + x];
+    }
+    client.write( (uint8_t*) b , 640 );
+  }
+  
 }
 
 /*
@@ -214,7 +296,7 @@ void loop() {
 
         // jpeg
         if (buf.endsWith("/jpg")) {
-          sendHttpResponseJpg(client);
+          sendHttpResponseBmp(client);
           break;
         }
 
