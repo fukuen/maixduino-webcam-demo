@@ -22,6 +22,7 @@
 #include <IPAddress.h>
 #include <Print.h>
 #include <SPI.h>
+#include "toojpeg/toojpeg.h"
 
 SPIClass spi_(SPI0); // MUST be SPI0 for Maix series on board LCD
 Sipeed_ST7789 lcd(320, 240, spi_);
@@ -64,6 +65,64 @@ void sendHttpResponse(WiFiEspClient client) {
   
   // The HTTP response ends with another blank line:
   client.println();
+}
+
+int pos = 0;
+auto pixels = new unsigned char[320 * 240 * 3];
+auto out = new unsigned char[320 * 240 * 3];
+
+void myOutput(unsigned char oneByte) {
+  out[pos] = oneByte;
+  pos++;
+}
+
+/*
+ * HTML Response img
+ */
+void sendHttpResponseJpg(WiFiEspClient client) {
+  // take snapshot 1 RGB565 & send to LCD
+  camera.setPixFormat(PIXFORMAT_RGB565);
+  uint8_t*img = camera.snapshot();
+  if(img == nullptr || img==0) {
+    printf("snap fail\n");
+    return;
+  }
+  lcd.drawImage(0, 0, camera.width(), camera.height(), (uint16_t*)img);
+
+  // RGB565 -> RGB888
+  for (int i = 0;  i < 320 * 240; i++) {
+    uint16_t val = img[i * 2 + 1] * 256 + img[i * 2];
+    pixels[i * 3    ] = val & 0xf800 >> 8;
+    pixels[i * 3 + 1] = val & 0x7e0 >> 3;
+    pixels[i * 3 + 2] = val & 0x1f << 3;
+  }
+
+  // jpeg
+  pos = 0;
+  TooJpeg::writeJpeg(myOutput, pixels, 320, 240, true);
+
+  Serial.printf("jpeg size %d\n", pos);
+
+  // HTTP response
+//  client.setTimeout(180 * 1000);
+  client.println("HTTP/1.1 200 OK");
+  client.println("Content-type: image/jpeg");
+  client.print("Content-length: ");
+  client.printf("%d", pos);
+  client.println();
+  client.println();
+
+  // send jpeg
+  // 80 bytes per write
+  uint16_t rest = pos;
+  for (int i = 0; i < pos; i += 80) {
+    if (rest < 80) {
+      client.write((uint8_t *)out + i, rest);
+    } else {
+      client.write((uint8_t *)out + i, 80);
+      rest -= 80;
+    }
+  }
 }
 
 /*
@@ -183,7 +242,7 @@ void sendHttpResponseBmp(WiFiEspClient client) {
   uint8_t b[320 * 2];
 
   // Send all the pixels on the whole screen
-  for ( uint32_t y = Height; y >= 0; y--) {
+  for ( int y = Height; y >= 0; y--) {
     // Increment x by NPIXELS as we send NPIXELS for every byte received
     for ( uint32_t x = 0; x < Width * 2; x += 2) {
       b[x] = img[y * Width * 2 + x + 1];
@@ -296,7 +355,7 @@ void loop() {
 
         // jpeg
         if (buf.endsWith("/jpg")) {
-          sendHttpResponseBmp(client);
+          sendHttpResponseJpg(client);
           break;
         }
 
