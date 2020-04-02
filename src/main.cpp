@@ -23,12 +23,17 @@
 #include <Print.h>
 #include <SPI.h>
 #include "toojpeg/toojpeg.h"
+#include <WiFiEspUdp.h>
+#include "ArduinoMDNS.h"
 
 SPIClass spi_(SPI0); // MUST be SPI0 for Maix series on board LCD
 Sipeed_ST7789 lcd(320, 240, spi_);
 
 Maixduino_GC0328 camera(FRAMESIZE_QVGA, PIXFORMAT_RGB565);
 //Maixduino_GC0328 camera(FRAMESIZE_QVGA, PIXFORMAT_YUV422);
+
+WiFiEspUDP udp;
+MDNS mdns(udp);
 
 char SSID[] = "xxxxxxxxxxxx";        // your network SSID (name)
 char pass[] = "zzzzzzzzzzzz";        // your network password
@@ -331,12 +336,18 @@ void setup() {
   lcd.println("/");
 
   server.begin();
+
+  mdns.begin(WiFi.localIP(), "maixduino");
+  mdns.addServiceRecord("mDNS Webserver http",
+                        80,
+                        MDNSServiceTCP);
 }
 
 /*
  * Main loop
  */
 void loop() {
+  mdns.run();
   WiFiEspClient client = server.available();  // listen for incoming clients
 
   if (client) {                               // if you get a client,
